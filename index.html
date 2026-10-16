@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign Bridge - Live ASL Fingerspelling</title>
+<script>
+  (function() {
+    try {
+      var t = localStorage.getItem("sb_theme");
+      if (!t && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) t = "dark";
+      if (t) document.documentElement.setAttribute("data-theme", t);
+    } catch(e) {}
+  })();
+</script>
+<style>
+  :root, [data-theme="light"] { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mute:#667085; --line:#e3e6ea; --acc:#2563eb; --ok:#16a34a; --warn:#d97706; --bad:#dc2626; }
+  [data-theme="dark"] { --bg:#0f1216; --card:#181c22; --ink:#e8eaed; --mute:#98a2b3; --line:#2a3039; --acc:#60a5fa; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1216; --card:#181c22; --ink:#e8eaed; --mute:#98a2b3; --line:#2a3039; --acc:#60a5fa; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, "Segoe UI", sans-serif; transition: background .2s ease, color .2s ease; }
+  header { padding:14px 16px; display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+  h1 { font-size:20px; margin:0; font-weight:700; } .sub { color:var(--mute); font-size:13px; }
+  main { display:grid; grid-template-columns: minmax(0,1.5fr) minmax(0,1fr); gap:14px; padding:16px 16px 24px; max-width:1100px; margin:auto; }
+  @media (max-width:800px) { main { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; transition: background .2s ease, border-color .2s ease; }
+  .stage { position:relative; background:#000; border-radius:8px; overflow:hidden; aspect-ratio:4/3; }
+  video, canvas.overlay { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .stage.mirror video, .stage.mirror canvas.overlay { transform: scaleX(-1); }
+  .status { position:absolute; left:8px; top:8px; background:rgba(0,0,0,.6); color:#fff; padding:3px 9px; border-radius:99px; font-size:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  button { font:inherit; padding:7px 13px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  select, input[type=number], input[type=text] { background:var(--card); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:5px 8px; font:inherit; }
+  .theme-btn { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; padding:6px 14px; border-radius:99px; background:var(--card); border:1px solid var(--line); color:var(--ink); cursor:pointer; transition:all .15s ease; }
+  .theme-btn:hover { background:var(--line); }
+  .big { font-size:54px; font-weight:700; line-height:1; min-width:64px; text-align:center; }
+  .bar { height:8px; background:var(--line); border-radius:99px; overflow:hidden; } .bar > i { display:block; height:100%; background:var(--acc); width:0; transition:width .08s; }
+  .prob { display:grid; grid-template-columns:22px 1fr 44px; gap:8px; align-items:center; margin:5px 0; font-size:14px; }
+  .prob .bar { height:10px; } .prob span:last-child { text-align:right; color:var(--mute); font-variant-numeric:tabular-nums; }
+  #text { min-height:64px; font-size:26px; letter-spacing:2px; word-break:break-all; padding:10px; border:1px dashed var(--line); border-radius:8px; }
+  .cursor { display:inline-block; width:2px; height:1em; background:var(--acc); vertical-align:-3px; animation:blink 1s steps(2) infinite; } @keyframes blink { 50% { opacity:0; } }
+  label { font-size:13px; color:var(--mute); } input[type=range] { vertical-align:middle; width:140px; }
+  canvas#crop { width:112px; height:112px; border-radius:8px; background:#222; image-rendering:auto; }
+  .kv { display:flex; gap:16px; flex-wrap:wrap; font-size:13px; color:var(--mute); } .kv b { color:var(--ink); font-variant-numeric:tabular-nums; }
+  #log { font:12px/1.4 ui-monospace, Consolas, monospace; color:var(--mute); max-height:90px; overflow:auto; white-space:pre-wrap; }
+  h2 { font-size:14px; margin:0 0 8px; }
+  .head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .head h2 { margin:0 0 8px; }
+  .switch { display:inline-flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:8px; color:var(--ink); }
+  .switch input { position:absolute; opacity:0; width:1px; height:1px; }
+  .switch .track { width:38px; height:22px; border-radius:99px; background:var(--line); position:relative; transition:background .15s; flex:none; }
+  .switch .track i { position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.4); transition:transform .15s; }
+  .switch input:checked + .track { background:var(--acc); }
+  .switch input:checked + .track i { transform:translateX(16px); }
+  .switch input:focus-visible + .track { outline:2px solid var(--acc); outline-offset:2px; }
+  .switch b { font-size:13px; min-width:22px; }
+  .card.compact .detail { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Sign Bridge 🌉</h1>
+    <span class="sub">Show one hand sign to the camera. Hold a letter steady to type it.</span>
+  </div>
+  <button id="themeToggle" class="theme-btn" type="button" title="Switch theme">
+    <span id="themeIcon">🌙</span> <span id="themeText">Dark theme</span>
+  </button>
+</header>
+<main>
+  <section class="card">
+    <div class="stage mirror" id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas class="overlay" id="overlay"></canvas>
+      <span class="status" id="status">Press Start camera</span>
+    </div>
+    <div class="row">
+      <button class="primary" id="start">Start camera</button>
+      <button id="stop" disabled>Stop</button>
+      <label><input type="checkbox" id="mirror" checked> mirror view</label>
+      <label>or test a photo: <input type="file" id="file" accept="image/*"></label>
+    </div>
+    <div class="row">
+      <label>Model <select id="model"></select></label>
+    </div>
+    <div class="row">
+      <label>Letters need <b id="nv">8</b> steady frames <input type="range" id="n" min="2" max="30" value="8"></label>
+      <label><input type="checkbox" id="fast" checked> fast mode (clear letters need fewer frames)</label>
+      <label id="motionLbl" hidden><input type="checkbox" id="motion" checked> J and Z (motion)</label>
+      <label>Min confidence <b id="cv">60</b>% <input type="range" id="conf" min="20" max="95" value="60"></label>
+    </div>
+  </section>
+  <section style="display:grid; gap:14px; align-content:start">
+    <div class="card">
+      <div class="head"><h2>What the model sees</h2>
+        <label class="switch" title="Show or hide the crop, the top-5 guesses and the speed numbers"><input type="checkbox" id="viewSwitch" checked><span class="track"><i></i></span><b id="viewState">On</b></label></div>
+      <div class="row" style="margin-top:0">
+        <canvas id="crop" class="detail" width="224" height="224"></canvas>
+        <div class="big" id="letter">–</div>
+        <div style="flex:1; min-width:120px"><div class="bar"><i id="prog"></i></div><div class="sub" id="progtxt" style="margin-top:4px">hold steady to type</div></div>
+      </div>
+      <div id="probs" class="detail" style="margin-top:10px"></div>
+      <div class="sub detail" id="motionRead" style="margin-top:6px" hidden>J/Z motion: –</div>
+      <div class="kv detail"><span>FPS <b id="fps">–</b></span><span>Server <b id="ms">–</b> ms</span><span>Round trip <b id="rtt">–</b> ms</span><span>Hand detector <b id="det">–</b> ms</span></div>
+    </div>
+    <div class="card">
+      <h2>Text</h2>
+      <div id="text"><span class="cursor"></span></div>
+      <div class="row">
+        <button id="space">Space</button><button id="back">Backspace</button><button id="clear">Clear</button><button id="copy">Copy</button>
+      </div>
+      <div class="row">
+        <button class="primary" id="say">Speak text</button>
+        <label><input type="checkbox" id="sayWords" checked> say each word on Space</label>
+        <label><input type="checkbox" id="sayLetters"> say each letter</label>
+      </div>
+      <div class="row">
+        <label>Voice <select id="voice" style="max-width:220px"></select></label>
+        <label>Speed <b id="rv">1.0</b>x <input type="range" id="rate" min="0.5" max="1.6" step="0.1" value="1"></label>
+      </div>
+    </div>
+    <details class="card" id="collectCard" hidden>
+      <summary style="cursor:pointer; font-weight:600">Collect samples (for training J, Z and other letters)</summary>
+      <p class="sub" style="margin:8px 0">Start the camera first. Pick a letter, press Record: after each beep show the sign once (for J and Z: start shape, draw the letter, relax your hand). Vary speed, distance and position between rounds.
+        Saved on this PC only (hand points + crops, no full pictures).</p>
+      <div class="row">
+        <label>Letter <select id="cLabel"></select></label>
+        <label>Repeats <input type="number" id="cReps" value="20" min="1" max="100" style="width:64px"></label>
+        <label>Seconds each <input type="number" id="cSecs" value="2" min="1" max="6" step="0.5" style="width:64px"></label>
+      </div>
+      <div class="row"><button class="primary" id="cStart">Record</button><button id="cStop" disabled>Stop</button></div>
+      <div id="cCue" style="font-size:22px; font-weight:700; margin-top:10px; min-height:30px">–</div>
+      <div class="sub" id="cCount">nothing saved yet</div>
+      <hr style="border:none; border-top:1px solid var(--line); margin:14px 0">
+      <b>Word test</b>
+      <p class="sub" style="margin:6px 0">Spell a whole word the normal way (the page types live). Afterwards it shows what it typed against the word you meant, and saves the recording for training.
+        Letters you stay on for a while are typed; sign J and Z with their movement. Time allowed = 4 s + "seconds per letter" × the number of letters (JAZZ at 3 s = 16 s).</p>
+      <div class="row">
+        <label>Word <input id="cWord" value="JAZZ" maxlength="12" style="width:110px; text-transform:uppercase"></label>
+        <label>Seconds per letter <input type="number" id="wPer" value="3" min="1" max="8" step="0.5" style="width:64px"></label>
+        <button class="primary" id="wStart">Test word</button>
+        <span class="sub">words to try:</span>
+        <button class="wq">JAZZ</button><button class="wq">JUMP</button><button class="wq">ZOO</button><button class="wq">JOY</button><button class="wq">QUIZ</button><button class="wq">JAZ</button>
+      </div>
+      <div id="wCue" style="font-size:20px; font-weight:700; margin-top:10px; min-height:28px">–</div>
+      <div class="sub" id="wSummary">no words tested yet</div>
+    </details>
+    <div class="card"><h2>Log</h2><div id="log"></div></div>
+  </section>
+</main>
+<script type="module">
+import { HandLandmarker, FaceDetector, FilesetResolver, DrawingUtils } from "./static/mp/vision_bundle.mjs";
+const $ = id => document.getElementById(id);
+
+// ---- Bright / Dark Theme Handling ----
+const themeToggle = $("themeToggle"), themeIcon = $("themeIcon"), themeText = $("themeText");
+function updateThemeUI(t) {
+  if (!themeIcon || !themeText) return;
+  if (t === "dark") {
+    themeIcon.textContent = "☀️";
+    themeText.textContent = "Bright theme";
+    themeToggle.title = "Switch to Bright theme";
+  } else {
+    themeIcon.textContent = "🌙";
+    themeText.textContent = "Dark theme";
+    themeToggle.title = "Switch to Dark theme";
+  }
+}
+function setTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  try { localStorage.setItem("sb_theme", t); } catch {}
+  updateThemeUI(t);
+}
+const initialTheme = document.documentElement.getAttribute("data-theme") ||
+  (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+setTheme(initialTheme);
+if (themeToggle) {
+  themeToggle.onclick = () => {
+    const cur = document.documentElement.getAttribute("data-theme") || "light";
+    setTheme(cur === "dark" ? "light" : "dark");
+  };
+}
+// Where the model server is. Same address as this page by default (the PC server); for a page on GitHub Pages use
+//   https://<user>.github.io/<repo>/?server=https://<space>.hf.space[&code=<access code>]   (remembered in this browser)
+const qs = new URLSearchParams(location.search);
+const keep = (k, v) => { try { if (v) localStorage.setItem("fs_" + k, v); return v || localStorage.getItem("fs_" + k) || ""; } catch { return v || ""; } };
+const SERVER = keep("server", qs.get("server")).replace(/\/$/, "");
+const CODE = keep("code", qs.get("code"));
+const api = p => SERVER + p + (CODE ? (p.includes("?") ? "&" : "?") + "code=" + encodeURIComponent(CODE) : "");
+const asset = p => new URL(p, location.href).href;
+const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d"), crop = $("crop"), cctx = crop.getContext("2d");
+let landmarker, imageLandmarker, faceDetector, ws, stream, running = false, inflight = false, text = "", lastSent = 0, frames = [];
+const log = s => { const l = $("log"); l.textContent = (new Date().toLocaleTimeString() + "  " + s + "\n") + l.textContent.slice(0, 1500); };
+
+function render() { $("text").innerHTML = text.replace(/ /g, "&nbsp;") + '<span class="cursor"></span>'; }
+function setStatus(s) { $("status").textContent = s; }
+// ---- text to speech: the voices built into this browser/laptop (no download, works offline) ----
+const hasTTS = "speechSynthesis" in window;
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+function fillVoices() {
+  if (!hasTTS) return;
+  const vs = speechSynthesis.getVoices();
+  if (!vs.length) return;
+  const saved = store.get("voice");
+  const order = [...vs].sort((a, b) => (b.lang.startsWith("en") - a.lang.startsWith("en")) || a.name.localeCompare(b.name));
+  $("voice").innerHTML = order.map(v => `<option value="${v.name}">${v.name} (${v.lang})</option>`).join("");
+  $("voice").value = order.some(v => v.name === saved) ? saved : order[0].name;
+}
+if (hasTTS) { fillVoices(); speechSynthesis.onvoiceschanged = fillVoices; }
+function speak(s, interrupt = false) {
+  if (!hasTTS || !s.trim()) return;
+  if (interrupt) speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(s);
+  const v = speechSynthesis.getVoices().find(v => v.name === $("voice").value);
+  if (v) { u.voice = v; u.lang = v.lang; }
+  u.rate = +$("rate").value;
+  speechSynthesis.speak(u);
+}
+// "What the model sees": switch the details (crop, top-5 bars, speed numbers) on or off; the current letter and the hold bar stay visible
+function applyView() {
+  const on = $("viewSwitch").checked;
+  $("viewSwitch").closest(".card").classList.toggle("compact", !on);
+  $("viewState").textContent = on ? "On" : "Off";
+  store.set("view", on ? "1" : "0");
+}
+$("viewSwitch").onchange = applyView;
+{ const v = store.get("view"); if (v === "0") $("viewSwitch").checked = false; applyView(); }
+$("rate").oninput = () => { $("rv").textContent = (+$("rate").value).toFixed(1); store.set("rate", $("rate").value); };
+$("voice").onchange = () => store.set("voice", $("voice").value);
+{ const r = store.get("rate"); if (r) { $("rate").value = r; $("rv").textContent = (+r).toFixed(1); } }
+$("say").onclick = () => { if (!hasTTS) return log("this browser has no speech voices"); speak(text, true); log("speaking: " + text); };
+function addText(c) { text += c; render(); }
+
+$("space").onclick = () => { addText(" "); if ($("sayWords").checked) speak(text.trim().split(" ").pop()); };
+$("back").onclick = () => { text = text.slice(0, -1); render(); };
+$("clear").onclick = () => { text = ""; render(); ws && ws.readyState === 1 && ws.send(JSON.stringify({ reset: true })); };
+$("copy").onclick = async () => { try { await navigator.clipboard.writeText(text); log("copied"); } catch { log("copy not allowed here"); } };
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { e.preventDefault(); $("space").click(); }
+  if (e.code === "Backspace") { e.preventDefault(); $("back").click(); }
+  if (e.code === "Enter") { e.preventDefault(); $("say").click(); }
+});
+$("mirror").onchange = e => $("stage").classList.toggle("mirror", e.target.checked);
+const sendCfg = () => { $("nv").textContent = $("n").value; $("cv").textContent = $("conf").value;
+  ws && ws.readyState === 1 && ws.send(JSON.stringify({ n: +$("n").value, min_conf: $("conf").value / 100, model: $("model").value, adaptive: $("fast").checked })); };
+$("n").oninput = $("conf").oninput = $("model").onchange = $("fast").onchange = sendCfg;
+fetch(api("/models")).then(r => r.json()).then(m => {
+  if (m.error) { log("server says: " + m.error + " – open the page with ?code=YOURCODE"); return; }
+  $("model").innerHTML = m.models.map(n => `<option>${n}</option>`).join(""); $("model").value = m.default;
+  if (m.collect) $("collectCard").hidden = false;
+  if (m.motion) { motionAvailable = true; $("motionLbl").hidden = false; $("motionRead").hidden = false; }
+  log("server: " + (SERVER || "this page's own server") + " (" + m.device + ")");
+}).catch(() => log("cannot reach the server " + (SERVER || "") + " – is it running/awake?"));
+
+function showProbs(top) {
+  $("probs").innerHTML = top.map(([L, p]) => `<div class="prob"><b>${L}</b><div class="bar"><i style="width:${(p * 100).toFixed(0)}%"></i></div><span>${(p * 100).toFixed(0)}%</span></div>`).join("");
+  $("letter").textContent = top.length ? top[0][0] : "–";
+}
+
+async function loadHands() {
+  setStatus("loading hand detector…");
+  const fileset = await FilesetResolver.forVisionTasks(asset("static/mp/wasm"));
+  const mk = async (mode, delegate) => HandLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: asset("static/mp/hand_landmarker.task"), delegate }, runningMode: mode, numHands: 1,
+    minHandDetectionConfidence: 0.6, minHandPresenceConfidence: 0.6, minTrackingConfidence: 0.5 });
+  const mkFace = delegate => FaceDetector.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: asset("static/mp/face_detector.tflite"), delegate }, runningMode: "VIDEO", minDetectionConfidence: 0.5 });
+  try { landmarker = await mk("VIDEO", "GPU"); imageLandmarker = await mk("IMAGE", "GPU"); faceDetector = await mkFace("GPU"); }
+  catch (e) { log("GPU detector unavailable, using CPU"); landmarker = await mk("VIDEO", "CPU"); imageLandmarker = await mk("IMAGE", "CPU"); faceDetector = await mkFace("CPU"); }
+}
+
+// A "hand" is rejected when MediaPipe is unsure it is a hand, when it is tiny, or when it sits on top of a face
+// (the hand detector sometimes reads mouth/chin as fingers).
+function iou(a, b) {
+  const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y), x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  return inter / (a.w * a.h + b.w * b.h - inter);
+}
+function checkHand(res, b, w, h, now) {
+  const score = res.handedness && res.handedness[0] ? res.handedness[0][0].score : 0;
+  if (score < 0.7) return "not sure it is a hand";
+  if (b.s < 0.15 * Math.min(w, h)) return "hand too small – move closer";
+  if (faceDetector && now !== undefined) {
+    if (!checkHand.cache || now - checkHand.cache.t > 400) checkHand.cache = { t: now, dets: faceDetector.detectForVideo(video, now).detections || [] };   // faces barely move: check ~2.5x per second
+    // Only a confident, clearly bigger face that contains the "hand" counts. (A fist is sometimes detected as a weak "face" of its own size: ignore those.)
+    for (const d of checkHand.cache.dets) {
+      const f = d.boundingBox, score = d.categories && d.categories[0] ? d.categories[0].score : 1;
+      if (score < 0.8) continue;
+      const x0 = Math.max(b.x, f.originX), y0 = Math.max(b.y, f.originY), x1 = Math.min(b.x + b.s, f.originX + f.width), y1 = Math.min(b.y + b.s, f.originY + f.height);
+      const inside = Math.max(0, x1 - x0) * Math.max(0, y1 - y0) / (b.s * b.s);        // share of the hand box that lies inside the face
+      if (inside > 0.6 && f.width * f.height > 1.3 * b.s * b.s) return "that is a face, not a hand";
+    }
+  }
+  return null;
+}
+
+function connect() {
+  return new Promise(res => {
+    ws = new WebSocket((SERVER ? SERVER.replace(/^http/, "ws") : (location.protocol === "https:" ? "wss://" : "ws://") + location.host) + "/ws" + (CODE ? "?code=" + encodeURIComponent(CODE) : ""));
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => { sendCfg(); res(); };
+    ws.onmessage = ev => {
+      const r = JSON.parse(ev.data);
+      if ("motion" in r) { handleMotion(r.motion); return; }
+      inflight = Math.max(0, inflight - 1);
+      $("ms").textContent = r.ms; $("rtt").textContent = Math.round(performance.now() - lastSent);
+      if (r.top.length) showProbs(r.top);
+      $("prog").style.width = (r.progress * 100) + "%";
+      const unsure = r.top.length && r.top[0][1] < $("conf").value / 100;
+      $("letter").style.opacity = unsure ? 0.35 : 1;
+      $("progtxt").textContent = unsure ? "unsure (" + (r.top[0][1] * 100).toFixed(0) + "% < " + $("conf").value + "%) – adjust your hand or lighting"
+        : r.progress >= 1 ? "typed – change the sign for the next letter" : (r.progress > 0 ? "keep holding…" : "hold steady to type");
+      if (r.commit && performance.now() - lastFire < MUTE_MS) log("ignored " + r.commit + " (right after a J/Z)");
+      else if (r.commit) { addText(r.commit); lastTyped = { ch: r.commit, t: performance.now() }; if ($("sayLetters").checked) speak(r.commit, true); log("typed " + r.commit); }
+    };
+    ws.onclose = () => { if (running) { setStatus("connection lost"); log("server connection closed"); } };
+  });
+}
+
+// square crop around the landmarks, with a margin; returns the box in source pixel coordinates
+function box(lm, w, h, margin = 1.35) {
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const p of lm) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+  const cx = (x0 + x1) / 2 * w, cy = (y0 + y1) / 2 * h, s = Math.max((x1 - x0) * w, (y1 - y0) * h) * margin;
+  return { x: cx - s / 2, y: cy - s / 2, s };
+}
+function drawCrop(src, b) { cctx.fillStyle = "#808080"; cctx.fillRect(0, 0, 224, 224); cctx.drawImage(src, b.x, b.y, b.s, b.s, 0, 0, 224, 224); }
+const toJpeg = () => new Promise(r => crop.toBlob(r, "image/jpeg", 0.92));
+
+// ---- J and Z (movement): the last 2 s of hand points go to the motion model; J/Z is typed when it is >= 90 % sure twice in a row ----
+// Values chosen by replaying the recorded J/Z/other repeats through this logic (src/replay_live.py): 85 % / 2 checks / re-arm / 1.2 s mute
+const MOTION_CONF = 0.85, MOTION_COOLDOWN_MS = 2000, REPLACE_WITHIN_MS = 1500, MUTE_MS = 1200;
+const REPLACE = { J: ["I"], Z: ["X", "P", "G", "O"] };       // letters the still-image model types at the START of a J / Z: they get replaced
+let motionAvailable = false, seqBuf = [], lastSeq = 0, lastTyped = null, lastFire = -1e9, armed = true;   // armed: J/Z may fire again only after the movement calmed down
+const hits = { J: 0, Z: 0 };
+const motionOn = () => motionAvailable && $("motion").checked;
+function handleMotion(p) {
+  if (!p) { $("motionRead").textContent = "J/Z motion: not enough hand frames yet"; hits.J = hits.Z = 0; return; }
+  $("motionRead").textContent = `J/Z motion: J ${(p.J * 100).toFixed(0)}%  Z ${(p.Z * 100).toFixed(0)}%`;
+  const now = performance.now();
+  if (Math.max(p.J, p.Z) < 0.5) armed = true;
+  for (const L of ["J", "Z"]) {
+    hits[L] = p[L] >= MOTION_CONF ? hits[L] + 1 : 0;
+    if (hits[L] >= 2 && armed && now - lastFire > MOTION_COOLDOWN_MS && !(rec.on && !rec.live)) {
+      lastFire = now; armed = false; hits.J = hits.Z = 0; seqBuf = [];
+      if (lastTyped && now - lastTyped.t < REPLACE_WITHIN_MS && REPLACE[L].includes(lastTyped.ch) && text.endsWith(lastTyped.ch)) { text = text.slice(0, -1); log(`replaced ${lastTyped.ch} by ${L}`); }
+      addText(L); lastTyped = { ch: L, t: now };
+      if ($("sayLetters").checked) speak(L, true);
+      log("typed " + L + " (motion " + (p[L] * 100).toFixed(0) + "%)");
+      ws && ws.readyState === 1 && ws.send(JSON.stringify({ reset: true }));
+      return;
+    }
+  }
+}
+
+// ---- collecting samples: records hand points + crops for each repeat and sends them to this PC's server (/collect) ----
+const rec = { on: false, active: false, frames: [], t0: 0, stop: false, live: false };   // live: word test = record AND type live at the same time
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+$("cLabel").innerHTML = ["J", "Z", ..."ABCDEFGHIKLMNOPQRSTUVWXY".split(""), "other"].map(c => `<option value="${c}">${c === "other" ? "other (move your hand freely, no letter)" : c}</option>`).join("");
+function beep(freq, ms) { try { const a = beep.ctx || (beep.ctx = new AudioContext()), o = a.createOscillator(), g = a.createGain(); o.frequency.value = freq; g.gain.value = 0.15; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + ms / 1000); } catch {} }
+const savedCount = {};
+async function collect() {
+  if (!running) { $("cCue").textContent = "start the camera first"; return; }
+  const label = $("cLabel").value, reps = +$("cReps").value, secs = +$("cSecs").value;
+  rec.on = true; rec.stop = false; $("cStart").disabled = true; $("cStop").disabled = false;
+  let done = 0;
+  while (done < reps && !rec.stop && running) {
+    $("cCue").style.color = ""; $("cCue").textContent = `get ready… (${done + 1} of ${reps})`;
+    await sleep(1300);
+    if (rec.stop) break;
+    rec.frames = []; rec.t0 = performance.now(); rec.active = true;
+    beep(880, 150); $("cCue").style.color = "var(--ok)"; $("cCue").textContent = label === "other" ? "MOVE YOUR HAND" : `SIGN ${label} NOW`;
+    await sleep(secs * 1000);
+    rec.active = false; beep(440, 150);
+    const nHand = rec.frames.filter(f => f.hand).length;
+    if (nHand < 5) { $("cCue").style.color = "var(--bad)"; $("cCue").textContent = `only ${nHand} frames had a hand – not saved, try again`; await sleep(1200); continue; }
+    $("cCue").style.color = ""; $("cCue").textContent = "saving…";
+    try {
+      const r = await (await fetch(api("/collect?label=" + label), { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frames: rec.frames, video: [video.videoWidth, video.videoHeight], secs }) })).json();
+      if (!r.saved) throw new Error(r.error || "not saved");
+      done++; savedCount[label] = (savedCount[label] || 0) + 1;
+      $("cCount").textContent = "saved this session: " + Object.entries(savedCount).map(([k, v]) => `${k} ×${v}`).join(", ") + ` (last: ${r.hand_frames} hand frames in ${secs} s)`;
+    } catch (e) { $("cCue").style.color = "var(--bad)"; $("cCue").textContent = "ERROR: " + e.message; log("collect error: " + e.message); break; }
+    await sleep(700);
+  }
+  rec.on = false; rec.active = false; $("cStart").disabled = false; $("cStop").disabled = true;
+  if (!$("cCue").textContent.startsWith("ERROR") && !$("cCue").textContent.startsWith("start")) { $("cCue").style.color = ""; $("cCue").textContent = rec.stop ? "stopped" : `done – ${done} saved for ${label}`; }
+}
+$("cStart").onclick = collect;
+$("cStop").onclick = () => { rec.stop = true; };
+
+// ---- word test ----
+const lev = (a, b) => { const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]); for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; };
+const wordStats = { n: 0, exact: 0, dist: 0, len: 0 };
+document.querySelectorAll(".wq").forEach(b => b.onclick = () => { $("cWord").value = b.textContent; });
+async function wordTest() {
+  if (!running) { $("wCue").textContent = "start the camera first"; return; }
+  const word = $("cWord").value.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!word) return;
+  const secs = 4 + (+$("wPer").value || 3) * word.length;          // 4 s to get started + seconds per letter (default 3 s, was 1.5 s)
+  $("wStart").disabled = $("cStart").disabled = true;
+  text = ""; render(); lastTyped = null; seqBuf = []; hits.J = hits.Z = 0; armed = true;
+  ws && ws.readyState === 1 && ws.send(JSON.stringify({ reset: true }));
+  $("wCue").style.color = ""; $("wCue").textContent = "get ready…";
+  await sleep(1500);
+  rec.frames = []; rec.t0 = performance.now(); rec.on = true; rec.live = true; rec.active = true;
+  beep(880, 150); $("wCue").style.color = "var(--ok)"; $("wCue").textContent = `SPELL  ${word.split("").join(" ")}   (${secs.toFixed(1)} s)`;
+  await sleep(secs * 1000);
+  rec.active = false; beep(440, 150);
+  const typed = text.replace(/\s/g, ""), d = lev(word, typed), ok = d === 0;
+  wordStats.n++; wordStats.exact += ok; wordStats.dist += d; wordStats.len += word.length;
+  $("wCue").style.color = ok ? "var(--ok)" : "var(--bad)";
+  $("wCue").textContent = `${ok ? "✓" : "✗"}  meant ${word}  typed ${typed || "(nothing)"}`;
+  $("wSummary").textContent = `${wordStats.exact} of ${wordStats.n} words exactly right | letter accuracy ${(100 * (1 - wordStats.dist / wordStats.len)).toFixed(0)} % (edit distance)`;
+  try {
+    const r = await (await fetch(api("/collect?label=word"), { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ frames: rec.frames, video: [video.videoWidth, video.videoHeight], secs, expected: word, typed }) })).json();
+    if (!r.saved) throw new Error(r.error || "not saved");
+    log(`word test ${word}: typed ${typed || "-"} (saved ${r.hand_frames} hand frames)`);
+  } catch (e) { log("word test not saved: " + e.message); }
+  rec.on = false; rec.live = false; $("wStart").disabled = $("cStart").disabled = false;
+}
+$("wStart").onclick = wordTest;
+
+async function loop() {
+  if (!running) return;
+  requestAnimationFrame(loop);
+  if (video.readyState < 2 || video.videoWidth === 0) return;
+  const now = performance.now();
+  if (overlay.width !== video.videoWidth) { overlay.width = video.videoWidth; overlay.height = video.videoHeight; }
+  const t0 = performance.now();
+  const res = landmarker.detectForVideo(video, now);
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  let reject = null, b = null;
+  if (res.landmarks && res.landmarks.length) {
+    b = box(res.landmarks[0], video.videoWidth, video.videoHeight);
+    reject = checkHand(res, b, video.videoWidth, video.videoHeight, now + 0.01);
+  }
+  $("det").textContent = Math.round(performance.now() - t0);
+  if (res.landmarks && res.landmarks.length && !reject) {
+    const lm = res.landmarks[0], du = new DrawingUtils(octx);
+    du.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { color: "#22c55e", lineWidth: 3 });
+    du.drawLandmarks(lm, { color: "#ef4444", radius: 3 });
+    octx.strokeStyle = "#fbbf24"; octx.lineWidth = 3; octx.strokeRect(b.x, b.y, b.s, b.s);
+    setStatus("hand found");
+    if (!rec.on || rec.live) {                       // keep the last 2.2 s of hand points for the J/Z motion model
+      seqBuf.push({ t: now, lm: lm.flatMap(q => [+q.x.toFixed(4), +q.y.toFixed(4), +q.z.toFixed(4)]) });
+      while (seqBuf.length && now - seqBuf[0].t > 2200) seqBuf.shift();
+      if (motionOn() && ws.readyState === 1 && now - lastSeq > 150 && seqBuf.length >= 6) {
+        lastSeq = now;
+        ws.send(JSON.stringify({ seq: { t: seqBuf.map(f => Math.round(f.t)), lm: seqBuf.map(f => f.lm), video: [video.videoWidth, video.videoHeight], end: Math.round(now) } }));
+      }
+    }
+    if (rec.on && rec.active) {                      // collecting: record this frame (hand points + crop)
+      drawCrop(video, b);
+      rec.frames.push({ t: now - rec.t0, hand: res.handedness && res.handedness[0] ? res.handedness[0][0].categoryName : "?",
+        lm: lm.flatMap(q => [+q.x.toFixed(4), +q.y.toFixed(4), +q.z.toFixed(4)]), box: [+b.x.toFixed(1), +b.y.toFixed(1), +b.s.toFixed(1)],
+        jpg: crop.toDataURL("image/jpeg", 0.92).split(",")[1] });
+    }
+    if ((!rec.on || rec.live) && inflight < 2 && ws.readyState === 1) {      // up to 2 predictions in flight: as fast as the camera and the detector allow (also during a word test)
+      drawCrop(video, b);
+      inflight++; lastSent = now;
+      ws.send(await toJpeg());
+      frames.push(now); frames = frames.filter(t => now - t < 2000); $("fps").textContent = (frames.length / 2).toFixed(0);
+    }
+  } else {
+    if (reject) { octx.strokeStyle = "#ef4444"; octx.lineWidth = 3; octx.strokeRect(b.x, b.y, b.s, b.s); }
+    setStatus(reject ? "ignored: " + reject : "no hand – show one hand to the camera");
+    $("letter").textContent = "–"; $("prog").style.width = "0"; $("probs").innerHTML = "";
+    if (rec.active) rec.frames.push({ t: now - rec.t0, hand: null });
+    if ((!rec.on || rec.live) && ws.readyState === 1 && now - lastSent > 100) { lastSent = now; ws.send(JSON.stringify({ nohand: true })); }
+  }
+}
+
+$("start").onclick = async () => {
+  try {
+    if (!navigator.mediaDevices) throw new Error("camera needs the https:// address (accept the certificate warning)");
+    $("start").disabled = true;
+    if (!landmarker) await loadHands();
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+    video.srcObject = stream; await video.play();
+    await connect();
+    running = true; $("stop").disabled = false; setStatus("running"); log("camera started"); loop();
+  } catch (e) { setStatus("error"); log("ERROR: " + e.message); $("start").disabled = false; }
+};
+$("stop").onclick = () => { running = false; stream && stream.getTracks().forEach(t => t.stop()); ws && ws.close(); $("start").disabled = false; $("stop").disabled = true; setStatus("stopped"); octx.clearRect(0, 0, overlay.width, overlay.height); };
+
+// test with a still photo (no camera needed): same hand detection + crop, one prediction, no typing
+$("file").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    if (!imageLandmarker) await loadHands();
+    const img = new Image(); img.src = URL.createObjectURL(f); await img.decode();
+    const res = imageLandmarker.detect(img);
+    let b, note;
+    if (res.landmarks && res.landmarks.length) { b = box(res.landmarks[0], img.naturalWidth, img.naturalHeight); note = "hand found, cropped"; }
+    else { const s = Math.min(img.naturalWidth, img.naturalHeight); b = { x: (img.naturalWidth - s) / 2, y: (img.naturalHeight - s) / 2, s }; note = "no hand found – used the centre of the photo"; }
+    drawCrop(img, b);
+    const r = await (await fetch(api("/predict?model=" + encodeURIComponent($("model").value)), { method: "POST", body: await toJpeg() })).json();
+    showProbs(r.top); $("ms").textContent = r.ms; $("prog").style.width = "0"; $("progtxt").textContent = "photo test (" + note + ")";
+    log(`photo ${f.name}: ${r.top[0][0]} ${(r.top[0][1] * 100).toFixed(0)}% – ${note}`);
+  } catch (err) { log("ERROR: " + err.message); }
+};
+render();
+</script>
+</body>
+</html>

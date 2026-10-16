@@ -1,0 +1,8 @@
+transformers==5.18.0
+fastapi==0.142.2
+uvicorn==0.54.0
+websockets==17.1
+numpy
+pillow
+safetensors
+huggingface_hub
