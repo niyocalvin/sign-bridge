@@ -63,6 +63,9 @@ def classify(jpeg: bytes, name=None):
     model, id2 = M["models"][name if name in M["models"] else M["default"]]
     im = Image.open(io.BytesIO(jpeg)).convert("RGB").resize((224, 224), Image.BICUBIC)
     x = torch.from_numpy((np.asarray(im, dtype=np.float32) / 255 - 0.5) / 0.5).permute(2, 0, 1)[None].to(DEVICE)
+    dtype = next(model.parameters()).dtype
+    if dtype == torch.bfloat16:
+        x = x.to(dtype=torch.bfloat16)
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16, enabled=DEVICE == "cuda"):
         p = model(pixel_values=x).logits.float().softmax(-1)[0].cpu().numpy()
     order = np.argsort(-p)[:5]
@@ -227,12 +230,7 @@ def main():
     for name, src in candidates.items():
         if Path(src).exists() and not (Path(src) / "config.json").exists():
             continue
-        m = AutoModelForImageClassification.from_pretrained(src).to(DEVICE).eval()
-        if DEVICE == "cpu":
-            try:
-                m = torch.ao.quantization.quantize_dynamic(m, {torch.nn.Linear}, dtype=torch.qint8)
-            except Exception as e:
-                print(f"Dynamic quantization note: {e}")
+        m = AutoModelForImageClassification.from_pretrained(src, dtype=torch.bfloat16).to(DEVICE).eval()
         M["models"][name] = (m, {int(k): v for k, v in m.config.id2label.items()})
     M["default"] = next(iter(M["models"]))
     for name in M["models"]:
