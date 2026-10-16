@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.ao.quantization
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -229,7 +230,6 @@ def main():
         m = AutoModelForImageClassification.from_pretrained(src).to(DEVICE).eval()
         if DEVICE == "cpu":
             try:
-                import torch.ao.quantization
                 m = torch.ao.quantization.quantize_dynamic(m, {torch.nn.Linear}, dtype=torch.qint8)
             except Exception as e:
                 print(f"Dynamic quantization note: {e}")
